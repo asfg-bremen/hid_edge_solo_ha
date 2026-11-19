@@ -213,3 +213,67 @@ async def test_people_beyond_old_limit_are_not_new_after_update(hass: HomeAssist
     await hass.services.async_call(DOMAIN, "refresh_cardholders", {}, blocking=True)
     await hass.async_block_till_done()
     assert [e.data["cardholder_id"] for e in added] == ["5"]
+
+
+def _ev(vor, nach, ts, cid=None):
+    ev = {"forename": vor, "surname": nach, "timestamp": ts, "eventType": "2020"}
+    if cid:
+        ev["cardholderID"] = cid
+    return ev
+
+
+async def test_last_used_from_events(hass: HomeAssistant, client) -> None:
+    """Letzte Verwendung je Person, über ID oder Namen, dauerhaft gespeichert."""
+    client.get_events.return_value = [
+        _ev("Anna", "A", "2026-11-18T10:00:00", cid="1"),
+        _ev("Anna", "A", "2026-11-17T09:00:00", cid="1"),
+        _ev("Bob", "B", "2026-11-10T08:00:00"),  # ohne ID: über den Namen
+        _ev("", "", "2026-11-18T11:00:00"),  # unbekannte Karte zählt nicht
+    ]
+    entry = await _setup(hass)
+    state = hass.states.get("sensor.tur_zutrittsberechtigte")
+    used = {p["id"]: p["letzte_verwendung"] for p in state.attributes["personen"]}
+    assert used["1"].startswith("2026-11-18T10:00:00")
+    assert used["2"].startswith("2026-11-10T08:00:00")
+    assert used["3"] is None
+    assert state.attributes["verwendung_seit"].startswith("2026-11-10T08:00:00")
+
+    # Neuer Zutritt kommt über die laufende Abfrage dazu
+    client.get_events.return_value = [_ev("Cem", "C", "2026-11-19T07:30:00", cid="3")]
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.tur_zutrittsberechtigte")
+    used = {p["id"]: p["letzte_verwendung"] for p in state.attributes["personen"]}
+    assert used["3"].startswith("2026-11-19T07:30:00")
+    assert used["1"].startswith("2026-11-18T10:00:00")  # bleibt erhalten
+
+
+async def test_backfill_falls_back_to_fewer_events(hass: HomeAssistant, client) -> None:
+    """Beim Start werden mehr Ereignisse geladen, notfalls weniger."""
+    calls = []
+
+    async def events(count):
+        calls.append(count)
+        if count > 50:
+            raise EdgeSoloError("Ungültige XML-Antwort")
+        return [_ev("Anna", "A", "2026-11-01T10:00:00", cid="1")]
+
+    client.get_events.side_effect = events
+    await _setup(hass)
+    assert calls[:2] == [200, 50]
+    state = hass.states.get("sensor.tur_zutrittsberechtigte")
+    used = {p["id"]: p["letzte_verwendung"] for p in state.attributes["personen"]}
+    assert used["1"].startswith("2026-11-01T10:00:00")
+
+
+async def test_usage_stored_before_first_list_does_not_mark_everyone_new(hass: HomeAssistant, client) -> None:
+    """Gespeicherte Verwendungen ohne Personenliste: erstes Laden bleibt Bestand."""
+    from homeassistant.helpers.storage import Store
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_HOST: "192.0.2.1", CONF_USERNAME: "u", CONF_PASSWORD: "p"}, title="Tür")
+    entry.add_to_hass(hass)
+    await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}").async_save(
+        {"format": 2, "first_seen": None, "last_used": {}, "verwendung_seit": None})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.tur_neue_freigaben").state == "0"

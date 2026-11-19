@@ -16,8 +16,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .access import access_status, is_new, merge_first_seen
+from .events import last_used, merge_last_used, parse_time
 from .api import EdgeSoloAuthError, EdgeSoloClient, EdgeSoloError
 from .const import (
+    BACKFILL_EVENTS,
     CARDHOLDER_REFRESH,
     CARDHOLDER_RETRY,
     DOMAIN,
@@ -63,6 +65,10 @@ class EdgeSoloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._first_seen: dict[str, str | None] | None = None
         # Unbekannte Personen beim nächsten vollständigen Laden als Bestand übernehmen
         self._adopt_new = False
+        # Letzte Verwendung je Person ("id:<ID>" bzw. "name:<name>" -> ISO-Zeit)
+        self._last_used: dict[str, str] = {}
+        # Ab wann Verwendungen erfasst sind (ISO)
+        self._usage_since: str | None = None
         # Verhindert, dass Blättern und Schreibzugriffe sich überlappen
         self._cardholder_lock = asyncio.Lock()
         self._cardholders: list[dict[str, Any]] = []
@@ -75,8 +81,55 @@ class EdgeSoloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_setup(self) -> None:
         stored = await self._store.async_load()
         if stored is not None:
-            self._first_seen = dict(stored.get("first_seen") or {})
-            self._adopt_new = stored.get("format") != STORE_FORMAT
+            first_seen = stored.get("first_seen")
+            self._first_seen = dict(first_seen) if first_seen is not None else None
+            self._adopt_new = (
+                first_seen is not None and stored.get("format") != STORE_FORMAT
+            )
+            self._last_used = dict(stored.get("last_used") or {})
+            self._usage_since = stored.get("verwendung_seit")
+        await self._backfill_usage()
+
+    async def _backfill_usage(self) -> None:
+        """Ältere Zutritte einmalig für die letzte Verwendung einlesen.
+
+        Der Controller schneidet große Antworten ab, deshalb notfalls weniger.
+        Fehler sind hier unkritisch, die laufende Abfrage ergänzt später.
+        """
+        for count in (BACKFILL_EVENTS, BACKFILL_EVENTS // 4, EVENT_COUNT):
+            try:
+                events = await self.client.get_events(count)
+            except EdgeSoloError as err:
+                _LOGGER.debug("Ereignisse (%s) nicht geladen: %s", count, err)
+                continue
+            self._record_usage(events)
+            return
+
+    def _record_usage(self, events: list[dict[str, str]]) -> None:
+        changed = merge_last_used(self._last_used, events)
+        if self._usage_since is None:
+            times = [t for t in (parse_time(e.get("timestamp")) for e in events) if t]
+            start = min([*times, dt_util.now()])
+            self._usage_since = start.isoformat()
+            changed = True
+        if changed:
+            self._schedule_save()
+
+    def _schedule_save(self) -> None:
+        self._store.async_delay_save(
+            lambda: {
+                # Format erst nach vollständigem Laden hochsetzen
+                "format": 1 if self._adopt_new else STORE_FORMAT,
+                "first_seen": self._first_seen,
+                "last_used": self._last_used,
+                "verwendung_seit": self._usage_since,
+            },
+            10,
+        )
+
+    @property
+    def usage_since(self) -> str | None:
+        return self._usage_since
 
     # ----------------------------------------------------------- Abfrage
 
@@ -88,6 +141,7 @@ class EdgeSoloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ConfigEntryAuthFailed(str(err)) from err
         except EdgeSoloError as err:
             raise UpdateFailed(str(err)) from err
+        self._record_usage(events)
 
         now = dt_util.utcnow()
         if self._next_cardholder_refresh is None or now >= self._next_cardholder_refresh:
@@ -136,14 +190,7 @@ class EdgeSoloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._first_seen = first_seen
         if result.complete:
             self._adopt_new = False
-        self._store.async_delay_save(
-            lambda: {
-                # Format erst nach vollständigem Laden hochsetzen
-                "format": 1 if self._adopt_new else STORE_FORMAT,
-                "first_seen": self._first_seen,
-            },
-            10,
-        )
+        self._schedule_save()
 
         for person in result.people:
             person["erstmals_gesehen"] = first_seen.get(person["id"]) if person["id"] else None
@@ -225,6 +272,7 @@ class EdgeSoloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     p, now, tz, check_roles=check_roles, check_credentials=check_credentials
                 ),
                 "neu": is_new(p.get("erstmals_gesehen"), now, NEW_GRANT_WINDOW),
+                "letzte_verwendung": last_used(self._last_used, p),
             }
             for p in people
         ]
