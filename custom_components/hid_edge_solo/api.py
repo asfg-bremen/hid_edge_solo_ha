@@ -13,8 +13,12 @@ import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
-PAGE_SIZE = 50
-# Notbremse gegen Endlosschleifen bei fehlerhaften Antworten. Liegt bei 50
+# Der Edge Solo schneidet Antworten bei etwa 14 KB ab. 50 Personen im
+# Format "expanded" liegen knapp darüber, 20 sicher darunter.
+PAGE_SIZE = 20
+# Kleinste Seitengröße, auf die nach abgeschnittenen Antworten verkleinert wird
+MIN_PAGE_SIZE = 5
+# Notbremse gegen Endlosschleifen bei fehlerhaften Antworten. Liegt bei 20
 # Datensätzen pro Seite weit über der Kapazität eines Edge Solo.
 MAX_REQUESTS = 1000
 
@@ -25,6 +29,10 @@ class EdgeSoloError(Exception):
 
 class EdgeSoloAuthError(EdgeSoloError):
     """Benutzername oder Passwort falsch."""
+
+
+class EdgeSoloParseError(EdgeSoloError):
+    """Antwort ist kein gültiges XML, meist weil der Controller sie abschneidet."""
 
 
 class EdgeSoloResponseError(EdgeSoloError):
@@ -164,7 +172,7 @@ class EdgeSoloClient:
         try:
             root = ET.fromstring(body)
         except ET.ParseError as err:
-            raise EdgeSoloError(f"Ungültige XML-Antwort: {err}") from err
+            raise EdgeSoloParseError(f"Ungültige XML-Antwort: {err}") from err
         _check_error(root)
         return root
 
@@ -207,22 +215,39 @@ class EdgeSoloClient:
     async def get_cardholders(self, page_size: int = PAGE_SIZE) -> CardholderList:
         """Alle Personen, seitenweise geladen.
 
-        Ende der Liste ist erst erreicht, wenn der Controller moreRecords="false"
-        meldet oder eine leere Seite liefert. Ein fehlendes moreRecords oder
-        eine kürzere Seite (der Controller kürzt recordCount teils selbst)
-        beendet das Blättern nicht. Personen werden über cardholderID
-        entdoppelt, falls sich die Liste beim Blättern verschiebt.
+        Ende der Liste ist erreicht, wenn eine Seite leer ist oder der
+        Controller moreRecords="false" bei einer nicht vollen Seite meldet.
+        Bei einer vollen Seite wird moreRecords="false" nicht geglaubt: Der
+        Edge Solo meldet es auch, wenn weitere Personen folgen. Ein fehlendes
+        moreRecords oder eine kürzere Seite (der Controller kürzt recordCount
+        teils selbst) beendet das Blättern ebenfalls nicht.
+
+        Schneidet der Controller eine Antwort ab (ungültiges XML), wird dieselbe
+        Seite mit halber Größe erneut angefragt. Personen werden über
+        cardholderID entdoppelt, falls sich die Liste beim Blättern verschiebt.
         """
         by_id: dict[str, dict[str, Any]] = {}
         offset = 0
         requests = 0
         complete = False
         while requests < MAX_REQUESTS:
-            root = await self._query(
-                '<hid:Cardholders action="LR" responseFormat="expanded" '
-                f'recordOffset="{offset}" recordCount="{int(page_size)}"/>'
-            )
             requests += 1
+            try:
+                root = await self._query(
+                    '<hid:Cardholders action="LR" responseFormat="expanded" '
+                    f'recordOffset="{offset}" recordCount="{int(page_size)}"/>'
+                )
+            except EdgeSoloParseError:
+                if page_size <= MIN_PAGE_SIZE:
+                    raise
+                page_size = max(MIN_PAGE_SIZE, page_size // 2)
+                _LOGGER.debug(
+                    "Personenliste: Antwort ab Offset %s abgeschnitten, "
+                    "neuer Versuch mit %s Personen pro Seite",
+                    offset,
+                    page_size,
+                )
+                continue
             page = _find_all(root, "Cardholder")
             container = _find_first(root, "Cardholders")
             more = container.get("moreRecords") if container is not None else None
@@ -235,7 +260,14 @@ class EdgeSoloClient:
                     by_id[key] = person
                     added += 1
 
-            if not page or (more is not None and more.strip().lower() == "false"):
+            if not page:
+                complete = True
+                break
+            if (
+                more is not None
+                and more.strip().lower() == "false"
+                and len(page) < page_size
+            ):
                 complete = True
                 break
             if added == 0:

@@ -97,6 +97,7 @@ def merge_first_seen(
     now: datetime,
     *,
     remove_missing: bool,
+    adopt_new: bool = False,
 ) -> tuple[dict[str, str | None], list[str], list[str]]:
     """Merkt sich, wann eine Person zum ersten Mal in der Liste auftauchte.
 
@@ -106,6 +107,9 @@ def merge_first_seen(
 
     remove_missing=False für unvollständig geladene Listen: Wer nur wegen
     eines Abbruchs fehlt, darf nicht als gelöscht gemeldet werden.
+
+    adopt_new=True übernimmt unbekannte Personen als Bestand statt als neu,
+    z. B. wenn die Liste früher wegen eines Fehlers zu kurz geladen wurde.
 
     Rückgabe: (neue Zuordnung, hinzugekommene IDs, entfernte IDs)
     """
@@ -119,6 +123,8 @@ def merge_first_seen(
     for pid in ids:
         if pid in known:
             result[pid] = known[pid]
+        elif adopt_new:
+            result[pid] = None
         else:
             result[pid] = stamp
             added.append(pid)

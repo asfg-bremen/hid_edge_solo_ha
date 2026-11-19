@@ -190,3 +190,26 @@ async def test_get_events_limits(hass: HomeAssistant, client) -> None:
     with pytest.raises(vol.Invalid):
         await hass.services.async_call(
             DOMAIN, "get_events", {"anzahl": 5000}, blocking=True, return_response=True)
+
+
+async def test_people_beyond_old_limit_are_not_new_after_update(hass: HomeAssistant, client) -> None:
+    """Gespeicherte Daten aus 0.0.5 (Format 1, max. 50 Personen): wer jetzt
+    erstmals auftaucht, ist Bestand und löst keine Ereignisse aus."""
+    from homeassistant.helpers.storage import Store
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_HOST: "192.0.2.1", CONF_USERNAME: "u", CONF_PASSWORD: "p"}, title="Tür")
+    entry.add_to_hass(hass)
+    await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}").async_save({"first_seen": {"1": None}})
+    added = async_capture_events(hass, EVENT_CARDHOLDER_ADDED)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert added == []
+    assert hass.states.get("sensor.tur_neue_freigaben").state == "0"
+
+    # Danach gilt wieder: wer neu dazukommt, ist neu
+    client.get_cardholders.return_value = CardholderList(
+        people=[_p("1", "Anna", "A"), _p("2", "Bob", "B"), _p("3", "Cem", "C"), _p("5", "Eva", "E")],
+        complete=True, requests=1)
+    await hass.services.async_call(DOMAIN, "refresh_cardholders", {}, blocking=True)
+    await hass.async_block_till_done()
+    assert [e.data["cardholder_id"] for e in added] == ["5"]
