@@ -46,13 +46,16 @@ async def _setup(hass: HomeAssistant) -> MockConfigEntry:
 
 
 async def test_status_and_new(hass: HomeAssistant, client) -> None:
-    await _setup(hass)
+    entry = await _setup(hass)
     state = hass.states.get("sensor.tur_zutrittsberechtigte")
     assert state.state == "1"  # nur Anna aktiv
     assert state.attributes["gesamt"] == 3
     status = {p["id"]: p["status"] for p in state.attributes["personen"]}
     assert status == {"1": "aktiv", "2": "abgelaufen", "3": "kein_zeitplan"}
     assert state.attributes["zeitplaene"] == [{"id": "1", "name": "Immer"}]
+    # Für die Dashboard-Karte
+    assert state.attributes["config_entry_id"] == entry.entry_id
+    assert state.attributes["controller"] == "Tür"
     # Erstes Laden = Bestand, nichts ist neu
     assert hass.states.get("sensor.tur_neue_freigaben").state == "0"
 
@@ -109,3 +112,30 @@ async def test_add_unknown_schedule_is_rejected(hass: HomeAssistant, client) -> 
         await hass.services.async_call(
             DOMAIN, "add_cardholder", {"forename": "X", "surname": "Y", "schedule_id": "55"}, blocking=True)
     client.add_cardholder.assert_not_awaited()
+
+
+async def test_card_is_registered_with_frontend(hass: HomeAssistant) -> None:
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from custom_components.hid_edge_solo.frontend import async_register_card
+
+    http = MagicMock()
+    http.async_register_static_paths = AsyncMock()
+    hass.http = http
+    hass.config.components.add("frontend")
+    with patch("homeassistant.components.frontend.add_extra_js_url") as add_js:
+        await async_register_card(hass)
+
+    (config,) = http.async_register_static_paths.await_args.args[0]
+    assert config.url_path == "/hid_edge_solo/zugangs-uebersicht-card.js"
+    assert Path(config.path).is_file()
+    url = add_js.call_args.args[1]
+    assert url.startswith("/hid_edge_solo/zugangs-uebersicht-card.js?v=")
+
+
+async def test_card_not_registered_without_frontend(hass: HomeAssistant) -> None:
+    from custom_components.hid_edge_solo.frontend import async_register_card
+
+    hass.http = None
+    await async_register_card(hass)  # darf nicht fehlschlagen

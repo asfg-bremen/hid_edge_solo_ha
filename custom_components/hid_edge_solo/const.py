@@ -27,3 +27,7 @@ EVENT_CARDHOLDER_REMOVED = f"{DOMAIN}_cardholder_removed"
 EVENT_TYPES: dict[int, str] = {
     2020: "Zutritt gewährt",
 }
+
+# Dashboard-Karte "Zugangsübersicht" (www/), wird automatisch geladen
+CARD_URL_BASE = f"/{DOMAIN}"
+CARD_FILENAME = "zugangs-uebersicht-card.js"

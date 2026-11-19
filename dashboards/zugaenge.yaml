@@ -1,0 +1,21 @@
+# Beispiel-Dashboard "Zugänge" (Bearbeiten -> Raw-Konfigurationseditor).
+# Entitäts-IDs an die eigenen Controller anpassen oder "spalten" weglassen,
+# dann erscheinen alle HID-Edge-Solo-Controller automatisch als Spalten.
+title: Zugänge
+views:
+  - title: Übersicht
+    path: uebersicht
+    icon: mdi:account-key
+    type: panel
+    cards:
+      - type: custom:zugangs-uebersicht-card
+        titel: Zugänge Mitglieder
+  - title: Letzte Zutritte
+    path: zutritte
+    icon: mdi:door
+    cards:
+      - type: entities
+        entities:
+          - entity: sensor.halle_letzter_zutritt
+          - entity: sensor.halle_letzter_zutritt_zeit
+          - entity: sensor.halle_neue_freigaben
