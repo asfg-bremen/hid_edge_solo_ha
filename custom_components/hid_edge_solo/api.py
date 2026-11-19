@@ -93,10 +93,14 @@ class EdgeSoloClient:
         stamp = head.get("currentTimestamp")
         if not marker or not stamp:
             return []
+        try:
+            marker_i, stamp_i = int(marker), int(stamp)
+        except ValueError as err:
+            raise EdgeSoloError(f"Ungültige Ereignisposition: {err}") from err
         # 2. Aufruf liest ab dieser Position rückwärts
         root = await self._query(
             f'<hid:EventMessages action="LR" recordCount="{int(count)}" '
-            f'historyRecordMarker="{int(marker)}" historyTimestamp="{int(stamp)}"/>'
+            f'historyRecordMarker="{marker_i}" historyTimestamp="{stamp_i}"/>'
         )
         return [dict(el.attrib) for el in _find_all(root, "EventMessage")]
 
