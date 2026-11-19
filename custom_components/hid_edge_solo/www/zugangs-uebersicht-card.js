@@ -14,7 +14,7 @@
  * Integration als Spalten verwendet. Siehe README für alle Optionen.
  */
 
-const CARD_VERSION = "0.0.4";
+const CARD_VERSION = "0.0.5";
 const DOMAIN = "hid_edge_solo";
 const CARD_TAG = "zugangs-uebersicht-card";
 

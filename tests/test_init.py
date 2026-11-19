@@ -10,7 +10,7 @@ from homeassistant.exceptions import ServiceValidationError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_capture_events
 
-from custom_components.hid_edge_solo.api import CardholderList
+from custom_components.hid_edge_solo.api import CardholderList, EdgeSoloError
 from custom_components.hid_edge_solo.const import DOMAIN, EVENT_CARDHOLDER_ADDED, EVENT_CARDHOLDER_REMOVED
 
 
@@ -127,11 +127,15 @@ async def test_card_is_registered_with_frontend(hass: HomeAssistant) -> None:
     with patch("homeassistant.components.frontend.add_extra_js_url") as add_js:
         await async_register_card(hass)
 
-    (config,) = http.async_register_static_paths.await_args.args[0]
-    assert config.url_path == "/hid_edge_solo/zugangs-uebersicht-card.js"
-    assert Path(config.path).is_file()
-    url = add_js.call_args.args[1]
-    assert url.startswith("/hid_edge_solo/zugangs-uebersicht-card.js?v=")
+    configs = http.async_register_static_paths.await_args.args[0]
+    assert [c.url_path for c in configs] == [
+        "/hid_edge_solo/zugangs-uebersicht-card.js",
+        "/hid_edge_solo/zutritte-card.js",
+    ]
+    assert all(Path(c.path).is_file() for c in configs)
+    urls = [c.args[1] for c in add_js.call_args_list]
+    assert urls[0].startswith("/hid_edge_solo/zugangs-uebersicht-card.js?v=")
+    assert urls[1].startswith("/hid_edge_solo/zutritte-card.js?v=")
 
 
 async def test_card_not_registered_without_frontend(hass: HomeAssistant) -> None:
@@ -139,3 +143,50 @@ async def test_card_not_registered_without_frontend(hass: HomeAssistant) -> None
 
     hass.http = None
     await async_register_card(hass)  # darf nicht fehlschlagen
+
+
+_EVENT = {"forename": "Anna", "surname": "A", "timestamp": "2026-11-18T14:32:00", "eventType": "2020", "cardNumber": "123"}
+
+
+async def test_connection_sensor(hass: HomeAssistant, client) -> None:
+    entry = await _setup(hass)
+    assert hass.states.get("binary_sensor.tur_verbindung").state == "on"
+    client.get_door.side_effect = EdgeSoloError("Controller nicht erreichbar")
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    state = hass.states.get("binary_sensor.tur_verbindung")
+    assert state.state == "off"  # bleibt verfügbar, zeigt "getrennt"
+    assert "nicht erreichbar" in state.attributes["fehler"]
+    assert hass.states.get("sensor.tur_letzter_zutritt").state == "unavailable"
+
+
+async def test_last_access_attributes(hass: HomeAssistant, client) -> None:
+    client.get_events.return_value = [_EVENT]
+    entry = await _setup(hass)
+    state = hass.states.get("sensor.tur_letzter_zutritt")
+    assert state.state == "Anna A"
+    assert state.attributes["config_entry_id"] == entry.entry_id
+    assert state.attributes["verlauf"][0]["ereignis"] == "Zutritt gewährt"
+    assert "cardNumber" not in state.attributes["verlauf"][0]
+
+
+async def test_get_events_service(hass: HomeAssistant, client) -> None:
+    entry = await _setup(hass)
+    client.get_events.reset_mock()
+    client.get_events.return_value = [_EVENT, {**_EVENT, "forename": "Bob", "eventType": "9999"}]
+    resp = await hass.services.async_call(
+        DOMAIN, "get_events", {"anzahl": 300}, blocking=True, return_response=True)
+    client.get_events.assert_awaited_once_with(300)
+    assert resp["config_entry_id"] == entry.entry_id
+    assert [e["name"] for e in resp["ereignisse"]] == ["Anna A", "Bob A"]
+    assert resp["ereignisse"][1]["ereignis"] == "Ereignis 9999"
+    assert resp["ereignisse"][0]["zeit"].startswith("2026-11-18T14:32:00")
+    assert all("cardNumber" not in e for e in resp["ereignisse"])
+
+
+async def test_get_events_limits(hass: HomeAssistant, client) -> None:
+    await _setup(hass)
+    import voluptuous as vol
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(
+            DOMAIN, "get_events", {"anzahl": 5000}, blocking=True, return_response=True)

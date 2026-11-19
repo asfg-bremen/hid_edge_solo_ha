@@ -73,6 +73,20 @@
           "description": "ID of the person (field 'id' in attribute 'personen' of the cardholder sensor)."
         }
       }
+    },
+    "get_events": {
+      "name": "Get events",
+      "description": "Reads the latest events (accesses) directly from the controller, newest first. Read-only.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Controller",
+          "description": "Only needed if more than one controller is set up."
+        },
+        "anzahl": {
+          "name": "Count",
+          "description": "How many events to load (1–500)."
+        }
+      }
     }
   }
 }

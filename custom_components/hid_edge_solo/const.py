@@ -28,6 +28,6 @@ EVENT_TYPES: dict[int, str] = {
     2020: "Zutritt gewährt",
 }
 
-# Dashboard-Karte "Zugangsübersicht" (www/), wird automatisch geladen
+# Dashboard-Karten (www/), werden automatisch geladen
 CARD_URL_BASE = f"/{DOMAIN}"
-CARD_FILENAME = "zugangs-uebersicht-card.js"
+CARD_FILENAMES = ("zugangs-uebersicht-card.js", "zutritte-card.js")

@@ -1,7 +1,7 @@
-"""Liefert die Dashboard-Karte "Zugangsübersicht" mit aus.
+"""Liefert die Dashboard-Karten "Zugangsübersicht" und "Zutritte" mit aus.
 
-Die Karte liegt in www/ und wird beim Start automatisch im Frontend geladen.
-Eine Ressource in den Dashboard-Einstellungen ist dafür nicht nötig.
+Die Karten liegen in www/ und werden beim Start automatisch im Frontend
+geladen. Eine Ressource in den Dashboard-Einstellungen ist nicht nötig.
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ from pathlib import Path
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
-from .const import CARD_FILENAME, CARD_URL_BASE, DOMAIN
+from .const import CARD_FILENAMES, CARD_URL_BASE, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_register_card(hass: HomeAssistant) -> None:
-    """Statischen Pfad anlegen und die Karte als Frontend-Modul eintragen.
+    """Statische Pfade anlegen und die Karten als Frontend-Module eintragen.
 
     Ohne http/frontend (z. B. in Tests) wird nichts registriert.
     """
@@ -29,12 +29,16 @@ async def async_register_card(hass: HomeAssistant) -> None:
     from homeassistant.components.frontend import add_extra_js_url
     from homeassistant.components.http import StaticPathConfig
 
-    path = Path(__file__).parent / "www" / CARD_FILENAME
-    url = f"{CARD_URL_BASE}/{CARD_FILENAME}"
+    www = Path(__file__).parent / "www"
+    urls = [f"{CARD_URL_BASE}/{name}" for name in CARD_FILENAMES]
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(url, str(path), cache_headers=False)]
+        [
+            StaticPathConfig(url, str(www / name), cache_headers=False)
+            for url, name in zip(urls, CARD_FILENAMES)
+        ]
     )
     integration = await async_get_integration(hass, DOMAIN)
-    # Versionsparameter, damit Browser nach einem Update die neue Datei laden
-    add_extra_js_url(hass, f"{url}?v={integration.version}")
-    _LOGGER.debug("Dashboard-Karte unter %s registriert", url)
+    for url in urls:
+        # Versionsparameter, damit Browser nach einem Update die neue Datei laden
+        add_extra_js_url(hass, f"{url}?v={integration.version}")
+    _LOGGER.debug("Dashboard-Karten registriert: %s", ", ".join(urls))
