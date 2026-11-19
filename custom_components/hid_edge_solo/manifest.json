@@ -1,11 +1,12 @@
 {
   "domain": "hid_edge_solo",
   "name": "HID Edge Solo",
-  "codeowners": [],
+  "codeowners": ["@jack20084"],
   "config_flow": true,
-  "documentation": "https://www.hidglobal.com/",
+  "documentation": "https://github.com/asfg-bremen/hid_edge_solo_ha",
   "integration_type": "device",
   "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/asfg-bremen/hid_edge_solo_ha/issues",
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.0.2"
 }
