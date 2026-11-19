@@ -177,7 +177,11 @@ class CardholderSensor(_CardholderBase):
         counts = {status: 0 for status in ALL_STATUSES}
         for p in people:
             counts[p["status"]] += 1
+        entry = self.coordinator.config_entry
         return {
+            # Für die Dashboard-Karte: welcher Controller, für den Löschaufruf
+            "config_entry_id": entry.entry_id,
+            "controller": entry.title,
             "gesamt": len(people),
             **{f"anzahl_{status}": count for status, count in counts.items()},
             **self._meta(),

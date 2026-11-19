@@ -32,6 +32,7 @@ Attribute von **Zutrittsberechtigte**:
 - `gesamt`: alle Personen am Controller
 - `anzahl_aktiv`, `anzahl_geplant`, `anzahl_abgelaufen`, `anzahl_kein_ausweis`, `anzahl_kein_zeitplan`
 - `vollstaendig`, `stand` (Zeitpunkt der letzten erfolgreichen Abfrage), `fehler`
+- `config_entry_id`, `controller`: welcher Controller (für die Dashboard-Karte)
 - `zeitplaene`: in der Liste vorkommende Zeitpläne (`id`, `name`), z. B. für eine Auswahl im Dashboard
 - `personen`: je Person `id`, `name`, `status`, `neu`, `zeitplan`, `ausweise` (Anzahl),
   `gueltig_bis` und `erstmals_gesehen`. Kartennummern werden bewusst nicht übernommen.
@@ -88,6 +89,67 @@ tap_action:
   confirmation:
     text: Person 1234 wirklich am Controller löschen?
 ```
+
+## Dashboard: Zugangsübersicht
+
+Die Integration bringt die Karte **Zugangsübersicht** mit. Sie wird automatisch
+geladen, eine Ressource muss nicht angelegt werden (nach einem Update ggf. die
+Seite neu laden).
+
+- **eine Zeile je Mitglied, eine Spalte je Zugangssystem** mit Status
+  (aktiv, geplant, abgelaufen, kein Ausweis, kein Zeitplan, kein Zugang)
+- Kopfzeile je System: aktive/alle Personen, Warnung bei unvollständiger Liste
+- Suche und Filter: *Nicht aktiv*, *Nicht überall*, *Neu*
+- **Klick auf ein Mitglied** öffnet einen Dialog: Zugang je System **entfernen**
+  oder **aus allen Systemen entfernen** (jeweils mit Rückfrage), fehlenden Zugang
+  anlegen (optional mit Zeitplan)
+- **+ Person** legt eine neue Person an, ↻ lädt alle Listen neu
+
+Personen verschiedener Systeme werden über den Namen zusammengeführt
+(Groß-/Kleinschreibung und doppelte Leerzeichen zählen nicht). Schreibende
+Schaltflächen sehen nur Administratoren.
+
+Minimal, alle Controller dieser Integration als Spalten:
+
+```yaml
+type: custom:zugangs-uebersicht-card
+```
+
+Mit festen Spalten und einem weiteren System, das kein HID-Controller ist:
+
+```yaml
+type: custom:zugangs-uebersicht-card
+titel: Zugänge Mitglieder
+spalten:
+  - entity: sensor.halle_zutrittsberechtigte
+    name: Halle
+  - entity: sensor.werkstatt_zutrittsberechtigte
+    name: Werkstatt
+  # Beliebiger Sensor mit einer Personenliste im Attribut (Texte oder Objekte
+  # mit name/id/status). Entfernen ruft hier ein eigenes Skript auf.
+  - entity: sensor.schluesseltresor
+    name: Schlüsseltresor
+    attribut: personen
+    entfernen:
+      action: script.tresor_zugang_entfernen
+      data:
+        person: "{name}"
+```
+
+| Option | Beschreibung |
+|---|---|
+| `titel` | Überschrift (Standard „Zugangsübersicht“) |
+| `spalten` | Liste von Entitäten oder Objekten; ohne Angabe alle Controller |
+| `spalten[].name` | Spaltenname (Standard: Gerätename) |
+| `spalten[].attribut` | Attribut mit der Personenliste (Standard `personen`) |
+| `spalten[].entfernen` / `hinzufuegen` / `aktualisieren` | eigene Aktion (`action`, `data`) oder `false` zum Abschalten. Platzhalter: `{id}`, `{name}`, `{vorname}`, `{nachname}`, `{zeitplan_id}`, `{config_entry_id}`, `{entity}`. Leere Werte werden weggelassen. |
+| `nur_lesen` | `true` blendet alle schreibenden Schaltflächen aus |
+| `nur_admins` | `false` zeigt die Schaltflächen auch Nicht-Administratoren |
+
+Für HID-Edge-Solo-Spalten sind Entfernen, Anlegen und Aktualisieren bereits
+vorbelegt (`delete_cardholder`, `add_cardholder`, `refresh_cardholders` mit dem
+passenden Controller). Ein vollständiges Beispiel-Dashboard liegt in
+[`dashboards/zugaenge.yaml`](dashboards/zugaenge.yaml).
 
 ## Installation
 

@@ -13,6 +13,7 @@ from homeassistant.helpers.typing import ConfigType
 from .api import EdgeSoloClient
 from .const import DOMAIN, STORAGE_VERSION
 from .coordinator import EdgeSoloCoordinator
+from .frontend import async_register_card
 from .services import async_setup_services
 
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SENSOR]
@@ -25,6 +26,7 @@ type EdgeSoloConfigEntry = ConfigEntry[EdgeSoloCoordinator]
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Dienste einmal pro Integration registrieren, nicht pro Controller
     async_setup_services(hass)
+    await async_register_card(hass)
     return True
 
 
