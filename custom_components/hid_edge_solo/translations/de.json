@@ -26,5 +26,53 @@
       "already_configured": "Dieser Controller ist bereits eingerichtet.",
       "reauth_successful": "Anmeldung aktualisiert."
     }
+  },
+  "services": {
+    "refresh_cardholders": {
+      "name": "Personenliste aktualisieren",
+      "description": "Lädt die Liste der Zutrittsberechtigten sofort neu vom Controller (nur lesend).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Controller",
+          "description": "Nur nötig, wenn mehrere Controller eingerichtet sind."
+        }
+      }
+    },
+    "add_cardholder": {
+      "name": "Person anlegen",
+      "description": "Legt eine Person am Controller an und weist optional einen Zeitplan zu. Ändert die Zutrittsdaten!",
+      "fields": {
+        "config_entry_id": {
+          "name": "Controller",
+          "description": "Nur nötig, wenn mehrere Controller eingerichtet sind."
+        },
+        "forename": {
+          "name": "Vorname",
+          "description": "Vorname der Person."
+        },
+        "surname": {
+          "name": "Nachname",
+          "description": "Nachname der Person."
+        },
+        "schedule_id": {
+          "name": "Zeitplan-ID",
+          "description": "ID des Zeitplans (siehe Attribut 'zeitplaene' des Sensors Zutrittsberechtigte). Ohne Angabe erhält die Person keinen Zeitplan."
+        }
+      }
+    },
+    "delete_cardholder": {
+      "name": "Person löschen",
+      "description": "Löscht eine Person am Controller. Ändert die Zutrittsdaten und lässt sich nicht rückgängig machen!",
+      "fields": {
+        "config_entry_id": {
+          "name": "Controller",
+          "description": "Nur nötig, wenn mehrere Controller eingerichtet sind."
+        },
+        "cardholder_id": {
+          "name": "Personen-ID",
+          "description": "ID der Person (Feld 'id' im Attribut 'personen' des Sensors Zutrittsberechtigte)."
+        }
+      }
+    }
   }
 }

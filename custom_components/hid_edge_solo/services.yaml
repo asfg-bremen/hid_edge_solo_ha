@@ -1,0 +1,39 @@
+refresh_cardholders:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: hid_edge_solo
+
+add_cardholder:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: hid_edge_solo
+    forename:
+      required: true
+      example: Erika
+      selector:
+        text:
+    surname:
+      required: true
+      example: Musterfrau
+      selector:
+        text:
+    schedule_id:
+      example: "1"
+      selector:
+        text:
+
+delete_cardholder:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: hid_edge_solo
+    cardholder_id:
+      required: true
+      example: "1234"
+      selector:
+        text:
