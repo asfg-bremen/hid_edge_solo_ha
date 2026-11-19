@@ -26,5 +26,53 @@
       "already_configured": "This controller is already configured.",
       "reauth_successful": "Re-authentication successful."
     }
+  },
+  "services": {
+    "refresh_cardholders": {
+      "name": "Refresh cardholder list",
+      "description": "Reloads the list of cardholders from the controller immediately (read-only).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Controller",
+          "description": "Only needed if more than one controller is set up."
+        }
+      }
+    },
+    "add_cardholder": {
+      "name": "Add cardholder",
+      "description": "Creates a cardholder on the controller and optionally assigns a schedule. Changes access data!",
+      "fields": {
+        "config_entry_id": {
+          "name": "Controller",
+          "description": "Only needed if more than one controller is set up."
+        },
+        "forename": {
+          "name": "First name",
+          "description": "First name of the person."
+        },
+        "surname": {
+          "name": "Last name",
+          "description": "Last name of the person."
+        },
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "Schedule ID (see attribute 'zeitplaene' of the cardholder sensor). Without it the person gets no schedule."
+        }
+      }
+    },
+    "delete_cardholder": {
+      "name": "Delete cardholder",
+      "description": "Deletes a cardholder on the controller. Changes access data and cannot be undone!",
+      "fields": {
+        "config_entry_id": {
+          "name": "Controller",
+          "description": "Only needed if more than one controller is set up."
+        },
+        "cardholder_id": {
+          "name": "Cardholder ID",
+          "description": "ID of the person (field 'id' in attribute 'personen' of the cardholder sensor)."
+        }
+      }
+    }
   }
 }
