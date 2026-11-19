@@ -37,3 +37,17 @@ delete_cardholder:
       example: "1234"
       selector:
         text:
+
+get_events:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: hid_edge_solo
+    anzahl:
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 500
+          mode: box

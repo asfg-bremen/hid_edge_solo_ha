@@ -73,6 +73,20 @@
           "description": "ID der Person (Feld 'id' im Attribut 'personen' des Sensors Zutrittsberechtigte)."
         }
       }
+    },
+    "get_events": {
+      "name": "Ereignisse abrufen",
+      "description": "Liest die letzten Ereignisse (Zutritte) direkt vom Controller, neuestes zuerst. Nur lesend.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Controller",
+          "description": "Nur nötig, wenn mehrere Controller eingerichtet sind."
+        },
+        "anzahl": {
+          "name": "Anzahl",
+          "description": "Wie viele Ereignisse geladen werden (1–500)."
+        }
+      }
     }
   }
 }

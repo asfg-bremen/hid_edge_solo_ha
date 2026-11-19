@@ -7,6 +7,7 @@ Sie fragt den Controller lokal über die VertX-XML-Schnittstelle (`/cgi-bin/vert
 
 | Entität | Typ | Beschreibung |
 |---|---|---|
+| Verbindung | Binärsensor (connectivity) | an = Controller antwortet; bleibt bei Ausfall verfügbar und zeigt „getrennt“, Fehler im Attribut `fehler` |
 | Schloss | Binärsensor (lock) | an = entriegelt, aus = verriegelt |
 | Tür aufgebrochen | Binärsensor (safety) | Alarm „Door Forced“ |
 | Tür zu lange offen | Binärsensor (problem) | Alarm „Door Held“ |
@@ -32,7 +33,8 @@ Attribute von **Zutrittsberechtigte**:
 - `gesamt`: alle Personen am Controller
 - `anzahl_aktiv`, `anzahl_geplant`, `anzahl_abgelaufen`, `anzahl_kein_ausweis`, `anzahl_kein_zeitplan`
 - `vollstaendig`, `stand` (Zeitpunkt der letzten erfolgreichen Abfrage), `fehler`
-- `config_entry_id`, `controller`: welcher Controller (für die Dashboard-Karte)
+- `config_entry_id`, `controller`: welcher Controller (für die Dashboard-Karten,
+  ebenso am Sensor *Letzter Zutritt*)
 - `zeitplaene`: in der Liste vorkommende Zeitpläne (`id`, `name`), z. B. für eine Auswahl im Dashboard
 - `personen`: je Person `id`, `name`, `status`, `neu`, `zeitplan`, `ausweise` (Anzahl),
   `gueltig_bis` und `erstmals_gesehen`. Kartennummern werden bewusst nicht übernommen.
@@ -70,6 +72,7 @@ Abbruchs fehlt, wird also nicht als gelöscht gemeldet.
 | `hid_edge_solo.refresh_cardholders` | – | – |
 | `hid_edge_solo.add_cardholder` | `forename`, `surname`, optional `schedule_id` | `cardholder_id`, `name` |
 | `hid_edge_solo.delete_cardholder` | `cardholder_id` | `cardholder_id`, `name` |
+| `hid_edge_solo.get_events` | optional `anzahl` (1–500, Standard 100) | `ereignisse` (je `name`, `zeit`, `ereignis`), `config_entry_id`, `controller` |
 
 - `config_entry_id` ist nur nötig, wenn mehrere Controller eingerichtet sind.
 - `delete_cardholder` löscht nur IDs, die in der zuletzt geladenen Liste stehen.
@@ -90,11 +93,42 @@ tap_action:
     text: Person 1234 wirklich am Controller löschen?
 ```
 
-## Dashboard: Zugangsübersicht
+## Dashboard-Karten
 
-Die Integration bringt die Karte **Zugangsübersicht** mit. Sie wird automatisch
-geladen, eine Ressource muss nicht angelegt werden (nach einem Update ggf. die
-Seite neu laden).
+Die Integration bringt zwei Karten mit. Sie werden automatisch geladen, eine
+Ressource muss nicht angelegt werden (nach einem Update die Seite neu laden).
+
+### Zutritte
+
+Alle Zutritte der Türen in einer Liste, neueste zuerst.
+
+- **Zeitleiste** der letzten Tage mit Anzahl je Tag; Klick auf einen Tag filtert
+  auf diesen Tag, ein zweiter Klick hebt den Filter auf. Schraffierte Tage liegen
+  vor dem Beginn der geladenen Daten.
+- **Bereiche** (Türen) per Klick ein- und ausblenden, **Personensuche**,
+  **Zeitfilter** von/bis; Klick auf einen Namen zeigt nur diese Person.
+- Spalten per Klick sortierbar, Standard ist die Zeit (neueste zuerst).
+- Die Sensoren *Letzter Zutritt* liefern je Tür die letzten 20 Zutritte. Weiter
+  zurück lädt die Karte über den Dienst `get_events` (Option `anzahl`, Standard 200).
+
+```yaml
+type: custom:zutritte-card
+tage: 14        # Länge der Zeitleiste
+anzahl: 200     # je Tür vom Controller nachladen, 0 = nur die letzten 20
+bereiche:       # optional, sonst alle Türen
+  - entity: sensor.neue_halle_letzter_zutritt
+    name: Neue Halle
+```
+
+Kompakt, z. B. in einer Übersicht je Tür (`max_zeilen`, Standard 5):
+
+```yaml
+type: custom:zutritte-card
+kompakt: true
+bereiche: [sensor.neue_halle_letzter_zutritt]
+```
+
+### Zugangsübersicht
 
 - **eine Zeile je Mitglied, eine Spalte je Zugangssystem** mit Status
   (aktiv, geplant, abgelaufen, kein Ausweis, kein Zeitplan, kein Zugang)

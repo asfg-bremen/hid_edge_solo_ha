@@ -65,8 +65,38 @@ async def async_setup_entry(
 ) -> None:
     coordinator = entry.runtime_data
     async_add_entities(
-        EdgeSoloBinarySensor(coordinator, description) for description in DESCRIPTIONS
+        [
+            ConnectionSensor(coordinator),
+            *(EdgeSoloBinarySensor(coordinator, d) for d in DESCRIPTIONS),
+        ]
     )
+
+
+class ConnectionSensor(EdgeSoloEntity, BinarySensorEntity):
+    """An = die letzte Abfrage des Controllers war erfolgreich.
+
+    Bleibt verfügbar, wenn der Controller ausfällt, damit "getrennt" sichtbar
+    ist statt "nicht verfügbar".
+    """
+
+    _attr_name = "Verbindung"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "connection")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.last_update_success
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | None]:
+        err = self.coordinator.last_exception
+        return {"fehler": None if self.coordinator.last_update_success or err is None else str(err)}
 
 
 class EdgeSoloBinarySensor(EdgeSoloEntity, BinarySensorEntity):

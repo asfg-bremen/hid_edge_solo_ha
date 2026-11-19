@@ -1,4 +1,4 @@
-"""Dienste: Personenliste neu laden, Person anlegen, Person löschen.
+"""Dienste: Personenliste neu laden, Person anlegen/löschen, Ereignisse abrufen.
 
 add_cardholder und delete_cardholder ändern die Zutrittsdaten am Controller.
 """
@@ -15,16 +15,22 @@ from homeassistant.helpers import config_validation as cv
 from .api import EdgeSoloError
 from .const import DOMAIN
 from .coordinator import EdgeSoloCoordinator, person_name
+from .events import event_entry
 
 SERVICE_REFRESH = "refresh_cardholders"
 SERVICE_ADD = "add_cardholder"
 SERVICE_DELETE = "delete_cardholder"
+SERVICE_EVENTS = "get_events"
 
 ATTR_CONFIG_ENTRY_ID = "config_entry_id"
 ATTR_CARDHOLDER_ID = "cardholder_id"
 ATTR_FORENAME = "forename"
 ATTR_SURNAME = "surname"
 ATTR_SCHEDULE_ID = "schedule_id"
+ATTR_COUNT = "anzahl"
+
+# Obergrenze je Abfrage, damit die Antwort des Controllers nicht zu groß wird
+MAX_EVENTS = 500
 
 _ENTRY = {vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string}
 _NAME = vol.All(cv.string, vol.Strip, vol.Length(min=1, max=64))
@@ -40,6 +46,14 @@ ADD_SCHEMA = vol.Schema(
     }
 )
 DELETE_SCHEMA = vol.Schema({**_ENTRY, vol.Required(ATTR_CARDHOLDER_ID): _ID})
+EVENTS_SCHEMA = vol.Schema(
+    {
+        **_ENTRY,
+        vol.Optional(ATTR_COUNT, default=100): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=MAX_EVENTS)
+        ),
+    }
+)
 
 
 def _coordinator(hass: HomeAssistant, call: ServiceCall) -> EdgeSoloCoordinator:
@@ -118,6 +132,21 @@ async def _delete(call: ServiceCall) -> ServiceResponse:
     return {ATTR_CARDHOLDER_ID: cardholder_id, "name": name}
 
 
+async def _events(call: ServiceCall) -> ServiceResponse:
+    """Letzte Ereignisse direkt vom Controller (nur lesend), neuestes zuerst."""
+    coordinator = _coordinator(call.hass, call)
+    try:
+        events = await coordinator.client.get_events(call.data[ATTR_COUNT])
+    except EdgeSoloError as err:
+        raise HomeAssistantError(f"Ereignisse konnten nicht geladen werden: {err}") from err
+    entry = coordinator.config_entry
+    return {
+        "config_entry_id": entry.entry_id,
+        "controller": entry.title,
+        "ereignisse": [event_entry(ev) for ev in events],
+    }
+
+
 def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_REFRESH, _refresh, schema=REFRESH_SCHEMA)
     hass.services.async_register(
@@ -133,5 +162,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
         _delete,
         schema=DELETE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_EVENTS,
+        _events,
+        schema=EVENTS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
     )
 

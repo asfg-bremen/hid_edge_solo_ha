@@ -8,38 +8,13 @@ from typing import Any
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.util import dt as dt_util
 
 from . import EdgeSoloConfigEntry
 from .access import ALL_STATUSES, STATUS_ACTIVE
-from .const import EVENT_TYPES, NEW_GRANT_WINDOW
+from .const import NEW_GRANT_WINDOW
 from .coordinator import person_name
 from .entity import EdgeSoloEntity
-
-
-def _parse_time(value: str | None) -> datetime | None:
-    """Gerätezeit (lokal, ohne Zeitzone) -> zeitzonenbewusst."""
-    if not value:
-        return None
-    parsed = dt_util.parse_datetime(value)
-    if parsed is None:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt_util.get_default_time_zone())
-    return parsed
-
-
-def _event_name(event: dict[str, str]) -> str:
-    name = f"{event.get('forename', '')} {event.get('surname', '')}".strip()
-    return name or "Unbekannt"
-
-
-def _event_type(event: dict[str, str]) -> str:
-    code = event.get("eventType", "")
-    try:
-        return EVENT_TYPES.get(int(code), f"Ereignis {code}")
-    except ValueError:
-        return f"Ereignis {code}"
+from .events import event_entry, event_name, parse_time
 
 
 async def async_setup_entry(
@@ -71,22 +46,19 @@ class LastAccessSensor(EdgeSoloEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         events = self.coordinator.data["events"]
-        return _event_name(events[0]) if events else None
+        return event_name(events[0]) if events else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         events = self.coordinator.data["events"]
-        verlauf = []
-        for ev in events:
-            ts = _parse_time(ev.get("timestamp"))
-            verlauf.append(
-                {
-                    "name": _event_name(ev),
-                    "zeit": ts.isoformat() if ts else None,
-                    "ereignis": _event_type(ev),
-                }
-            )
-        attrs: dict[str, Any] = {"verlauf": verlauf}
+        verlauf = [event_entry(ev) for ev in events]
+        entry = self.coordinator.config_entry
+        attrs: dict[str, Any] = {
+            # Für die Dashboard-Karte "Zutritte"
+            "config_entry_id": entry.entry_id,
+            "controller": entry.title,
+            "verlauf": verlauf,
+        }
         if verlauf:
             attrs["zeit"] = verlauf[0]["zeit"]
             attrs["ereignis"] = verlauf[0]["ereignis"]
@@ -105,7 +77,7 @@ class LastAccessTimeSensor(EdgeSoloEntity, SensorEntity):
     @property
     def native_value(self) -> datetime | None:
         events = self.coordinator.data["events"]
-        return _parse_time(events[0].get("timestamp")) if events else None
+        return parse_time(events[0].get("timestamp")) if events else None
 
 
 class _CardholderBase(EdgeSoloEntity, SensorEntity):
@@ -150,7 +122,7 @@ def _latest_end(p: dict[str, Any]) -> str | None:
     ends = [c.get("ende") for c in p["ausweise"]]
     if not ends or any(not e for e in ends):
         return None
-    parsed = [t for t in (_parse_time(e) for e in ends) if t is not None]
+    parsed = [t for t in (parse_time(e) for e in ends) if t is not None]
     return max(parsed).isoformat() if parsed else None
 
 
