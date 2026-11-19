@@ -31,6 +31,11 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Format der gespeicherten "erstmals gesehen"-Daten. Bis 0.0.5 (Format 1)
+# wurden höchstens 50 Personen geladen; wer danach erstmals auftaucht, ist
+# Bestand und keine neue Freigabe.
+STORE_FORMAT = 2
+
 
 def person_name(person: dict[str, Any]) -> str:
     return f"{person.get('vorname', '')} {person.get('nachname', '')}".strip()
@@ -56,6 +61,8 @@ class EdgeSoloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # cardholderID -> erstmals gesehen (ISO) bzw. None für den Bestand.
         # None insgesamt = noch nie geladen (erste Installation).
         self._first_seen: dict[str, str | None] | None = None
+        # Unbekannte Personen beim nächsten vollständigen Laden als Bestand übernehmen
+        self._adopt_new = False
         # Verhindert, dass Blättern und Schreibzugriffe sich überlappen
         self._cardholder_lock = asyncio.Lock()
         self._cardholders: list[dict[str, Any]] = []
@@ -69,6 +76,7 @@ class EdgeSoloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stored = await self._store.async_load()
         if stored is not None:
             self._first_seen = dict(stored.get("first_seen") or {})
+            self._adopt_new = stored.get("format") != STORE_FORMAT
 
     # ----------------------------------------------------------- Abfrage
 
@@ -119,10 +127,23 @@ class EdgeSoloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         previous = {p["id"]: p for p in self._cardholders if p["id"]}
         ids = [p["id"] for p in result.people if p["id"]]
         first_seen, added, removed = merge_first_seen(
-            self._first_seen, ids, now, remove_missing=result.complete
+            self._first_seen,
+            ids,
+            now,
+            remove_missing=result.complete,
+            adopt_new=self._adopt_new,
         )
         self._first_seen = first_seen
-        self._store.async_delay_save(lambda: {"first_seen": self._first_seen}, 10)
+        if result.complete:
+            self._adopt_new = False
+        self._store.async_delay_save(
+            lambda: {
+                # Format erst nach vollständigem Laden hochsetzen
+                "format": 1 if self._adopt_new else STORE_FORMAT,
+                "first_seen": self._first_seen,
+            },
+            10,
+        )
 
         for person in result.people:
             person["erstmals_gesehen"] = first_seen.get(person["id"]) if person["id"] else None

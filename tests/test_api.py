@@ -84,11 +84,13 @@ def _cardholder_xml(i: int, *, end: str | None = None) -> str:
 
 
 def _list_handler(total: int, *, cap: int | None = None, more_attr: str = "standard",
-                  ignore_offset: bool = False):
+                  ignore_offset: bool = False, max_bytes: int | None = None):
     """Simuliert action="LR" für Cardholders.
 
     cap: Controller kürzt recordCount selbst auf diesen Wert.
-    more_attr: "standard" = moreRecords korrekt, "missing" = Attribut fehlt.
+    more_attr: "standard" = moreRecords korrekt, "missing" = Attribut fehlt,
+      "false" = immer moreRecords="false" (Verhalten des Edge Solo).
+    max_bytes: Controller schneidet längere Antworten ab (ungültiges XML).
     """
     ids = list(range(1, total + 1))
 
@@ -100,13 +102,17 @@ def _list_handler(total: int, *, cap: int | None = None, more_attr: str = "stand
             count = min(count, cap)
         chunk = ids[offset : offset + count]
         more = offset + len(chunk) < total
-        more_xml = f' moreRecords="{str(more).lower()}"' if more_attr == "standard" else ""
+        if more_attr == "false":
+            more = False
+        more_xml = f' moreRecords="{str(more).lower()}"' if more_attr != "missing" else ""
         body = (
             f'<VertXMessage {NS}><hid:Cardholders action="RL" recordOffset="{offset}" '
             f'recordCount="{len(chunk)}"{more_xml}>'
             + "".join(_cardholder_xml(i) for i in chunk)
             + "</hid:Cardholders></VertXMessage>"
         )
+        if max_bytes is not None:
+            body = body[:max_bytes]
         return 200, body
 
     return handler
@@ -119,7 +125,7 @@ def run(coro):
 # --------------------------------------------------------------- Paginierung
 
 
-@pytest.mark.parametrize("total", [0, 1, 49, 50, 51, 237, 2500])
+@pytest.mark.parametrize("total", [0, 1, 19, 20, 21, 49, 50, 51, 237, 2500])
 def test_pagination_complete(total):
     client, session = _client(_list_handler(total))
     result = run(client.get_cardholders())
@@ -141,8 +147,8 @@ def test_pagination_without_more_records_attribute():
     result = run(client.get_cardholders())
     assert len(result.people) == 120
     assert result.complete
-    # 3 volle/teilweise Seiten + 1 leere Seite als Endekennung
-    assert result.requests == 4
+    # 6 volle Seiten à 20 + 1 leere Seite als Endekennung
+    assert result.requests == 7
 
 
 def test_pagination_controller_caps_page_size():
@@ -156,7 +162,7 @@ def test_pagination_offset_ignored_stops_and_flags_incomplete():
     client, session = _client(_list_handler(120, ignore_offset=True))
     result = run(client.get_cardholders())
     assert not result.complete
-    assert len(result.people) == 50
+    assert len(result.people) == 20
     assert len(session.requests) == 2
 
 
@@ -164,7 +170,36 @@ def test_pagination_offsets_are_sequential():
     client, session = _client(_list_handler(130))
     run(client.get_cardholders())
     offsets = [int(r[0].get("recordOffset")) for r in session.requests]
-    assert offsets == [0, 50, 100]
+    assert offsets == [0, 20, 40, 60, 80, 100, 120]
+
+
+@pytest.mark.parametrize("total", [50, 51, 124])
+def test_pagination_ignores_more_records_false_on_full_page(total):
+    """Der Edge Solo meldet moreRecords="false" schon nach der ersten Seite.
+
+    Früher endete die Liste dadurch bei 50 Personen, obwohl es mehr gab.
+    """
+    client, _ = _client(_list_handler(total, more_attr="false"))
+    result = run(client.get_cardholders())
+    assert result.complete
+    assert len(result.people) == total
+
+
+def test_pagination_shrinks_page_after_truncated_response():
+    """Abgeschnittene Antwort: dieselbe Seite kleiner erneut anfragen."""
+    page_bytes = len(_cardholder_xml(100)) + 30
+    client, session = _client(_list_handler(60, max_bytes=page_bytes * 12))
+    result = run(client.get_cardholders())
+    assert result.complete
+    assert len(result.people) == 60
+    counts = [int(r[0].get("recordCount")) for r in session.requests]
+    assert counts[:2] == [20, 10]
+
+
+def test_pagination_gives_up_when_even_small_pages_are_truncated():
+    client, _ = _client(_list_handler(60, max_bytes=200))
+    with pytest.raises(api.EdgeSoloParseError):
+        run(client.get_cardholders())
 
 
 def test_error_response_raises_instead_of_empty_list():
@@ -299,6 +334,14 @@ def test_added_and_removed():
     assert added == ["3"] and removed == ["1"]
     assert seen["3"] == NOW.isoformat()
     assert seen["2"] == known["2"]
+
+
+def test_adopt_new_takes_unknown_people_as_existing():
+    known = {"1": None, "2": "2026-11-01T00:00:00+00:00"}
+    seen, added, removed = access.merge_first_seen(
+        known, ["1", "2", "3"], NOW, remove_missing=True, adopt_new=True)
+    assert added == [] and removed == []
+    assert seen == {"1": None, "2": known["2"], "3": None}
 
 
 def test_incomplete_list_reports_no_removals():

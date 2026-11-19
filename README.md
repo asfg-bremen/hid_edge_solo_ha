@@ -24,7 +24,11 @@ Nach Änderungen über die Dienste dieser Integration wird die Liste sofort neu 
 
 ### Personenliste
 
-Die Liste wird seitenweise vollständig geladen. Meldet der Controller einen Fehler
+Die Liste wird seitenweise (20 Personen pro Anfrage) vollständig geladen. Der
+Edge Solo meldet `moreRecords="false"` auch dann, wenn weitere Personen folgen,
+und schneidet Antworten ab etwa 14 KB ab. Deshalb wird erst bei einer leeren oder
+nicht vollen Seite aufgehört, und nach einer abgeschnittenen Antwort wird dieselbe
+Seite mit halber Größe erneut angefragt. Meldet der Controller einen Fehler
 oder lässt sich die Liste nicht vollständig laden, bleibt die zuletzt geladene Liste
 erhalten und das Attribut `vollstaendig` bzw. `fehler` zeigt das an.
 
