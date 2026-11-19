@@ -16,7 +16,7 @@
  *   bereiche: [sensor.neue_halle_letzter_zutritt]
  */
 
-const CARD_VERSION = "0.0.6";
+const CARD_VERSION = "0.0.7";
 const DOMAIN = "hid_edge_solo";
 const CARD_TAG = "zutritte-card";
 const GRANTED = "Zutritt gewährt";

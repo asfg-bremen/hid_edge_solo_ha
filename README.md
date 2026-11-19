@@ -41,7 +41,14 @@ Attribute von **Zutrittsberechtigte**:
   ebenso am Sensor *Letzter Zutritt*)
 - `zeitplaene`: in der Liste vorkommende Zeitpläne (`id`, `name`), z. B. für eine Auswahl im Dashboard
 - `personen`: je Person `id`, `name`, `status`, `neu`, `zeitplan`, `ausweise` (Anzahl),
-  `gueltig_bis` und `erstmals_gesehen`. Kartennummern werden bewusst nicht übernommen.
+  `gueltig_bis`, `erstmals_gesehen` und `letzte_verwendung`. Kartennummern werden bewusst nicht übernommen.
+- `verwendung_seit`: ab wann `letzte_verwendung` erfasst wird
+
+**Letzte Verwendung:** Die Integration merkt sich zu jeder Person den letzten
+Zutritt an diesem Controller und speichert ihn dauerhaft. Beim Start werden die
+letzten 200 Ereignisse des Controllers eingelesen (bei abgeschnittenen Antworten
+weniger), danach jedes neue Ereignis. Zugeordnet wird über die Personen-ID, sonst
+über den Namen. Ältere Zutritte als die beim ersten Start gelesenen sind nicht bekannt.
 
 | Status | Bedeutung |
 |---|---|
@@ -136,9 +143,13 @@ bereiche: [sensor.neue_halle_letzter_zutritt]
 
 - **eine Zeile je Mitglied, eine Spalte je Zugangssystem** mit Status
   (aktiv, geplant, abgelaufen, kein Ausweis, kein Zeitplan, kein Zugang)
+- Spalte **Zuletzt benutzt** mit dem letzten Zutritt über alle Systeme und der Tür;
+  per Klick auf die Überschrift sortierbar (neueste bzw. am längsten unbenutzte zuerst)
 - Kopfzeile je System: aktive/alle Personen, Warnung bei unvollständiger Liste
-- Suche und Filter: *Nicht aktiv*, *Nicht überall*, *Neu*
-- **Klick auf ein Mitglied** öffnet einen Dialog: Zugang je System **entfernen**
+- Suche und Filter: *Nicht aktiv*, *Nicht überall*, *Neu*, *Länger als 90 Tage nicht
+  benutzt* (Option `inaktiv_tage`)
+- **Klick auf ein Mitglied** öffnet einen Dialog mit der letzten Verwendung je System:
+  Zugang je System **entfernen**
   oder **aus allen Systemen entfernen** (jeweils mit Rückfrage), fehlenden Zugang
   anlegen (optional mit Zeitplan)
 - **+ Person** legt eine neue Person an, ↻ lädt alle Listen neu
@@ -181,6 +192,7 @@ spalten:
 | `spalten[].name` | Spaltenname (Standard: Gerätename) |
 | `spalten[].attribut` | Attribut mit der Personenliste (Standard `personen`) |
 | `spalten[].entfernen` / `hinzufuegen` / `aktualisieren` | eigene Aktion (`action`, `data`) oder `false` zum Abschalten. Platzhalter: `{id}`, `{name}`, `{vorname}`, `{nachname}`, `{zeitplan_id}`, `{config_entry_id}`, `{entity}`. Leere Werte werden weggelassen. |
+| `inaktiv_tage` | Grenze für den Filter „Länger als … Tage nicht benutzt“ (Standard 90) |
 | `nur_lesen` | `true` blendet alle schreibenden Schaltflächen aus |
 | `nur_admins` | `false` zeigt die Schaltflächen auch Nicht-Administratoren |
 

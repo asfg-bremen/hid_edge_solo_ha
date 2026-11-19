@@ -14,7 +14,7 @@
  * Integration als Spalten verwendet. Siehe README für alle Optionen.
  */
 
-const CARD_VERSION = "0.0.6";
+const CARD_VERSION = "0.0.7";
 const DOMAIN = "hid_edge_solo";
 const CARD_TAG = "zugangs-uebersicht-card";
 
@@ -49,6 +49,25 @@ const fmtDateTime = (iso) => {
     : d.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
 };
 
+const pad2 = (n) => String(n).padStart(2, "0");
+const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+const toTime = (iso) => {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : t;
+};
+/** Kurz: "heute 14:32", "gestern 09:10", "Mo 16.11.", "12.08.25" */
+const fmtUsed = (t, now = new Date()) => {
+  const d = new Date(t);
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  const hm = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  if (diff === 0) return `heute ${hm}`;
+  if (diff === 1) return `gestern ${hm}`;
+  if (diff > 1 && diff < 7) return `${WD[d.getDay()]} ${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.`;
+  return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${String(d.getFullYear()).slice(2)}`;
+};
+
 /** Vor- und Nachname, notfalls aus dem Gesamtnamen (letztes Wort = Nachname). */
 const splitName = (name) => {
   const parts = String(name || "").trim().split(/\s+/);
@@ -76,6 +95,7 @@ class ZugangsUebersichtCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._search = "";
     this._filter = "alle";
+    this._sort = { key: "name", dir: 1 };
     this._dialog = null; // {type: "member", key} | {type: "new"}
     this._confirm = null; // "rm:<spalte>:<index>" | "rm:all"
     this._form = null; // {ci, vorname, nachname, zeitplan_id}
@@ -188,17 +208,44 @@ class ZugangsUebersichtCard extends HTMLElement {
         const key = norm(name);
         let row = map.get(key);
         if (!row) {
-          row = { key, name, vorname: null, nachname: null, neu: false, cells: cols.map(() => []) };
+          row = { key, name, vorname: null, nachname: null, neu: false, last: null, lastCi: null, cells: cols.map(() => []) };
           map.set(key, row);
         }
         if (!row.vorname && p.vorname) row.vorname = p.vorname;
         if (!row.nachname && p.nachname) row.nachname = p.nachname;
         if (p.neu) row.neu = true;
-        row.cells[ci].push({ ...p, name, status: p.status || "vorhanden" });
+        const used = toTime(p.letzte_verwendung);
+        if (used !== null && (row.last === null || used > row.last)) {
+          row.last = used;
+          row.lastCi = ci;
+        }
+        row.cells[ci].push({ ...p, name, status: p.status || "vorhanden", used });
       }
     });
     const sortKey = (r) => norm(`${r.nachname || splitName(r.name).nachname} ${r.vorname || splitName(r.name).vorname}`);
     return [...map.values()].sort((a, b) => sortKey(a).localeCompare(sortKey(b), "de"));
+  }
+
+  _sortRows(rows) {
+    if (this._sort.key !== "last") return this._sort.dir > 0 ? rows : [...rows].reverse();
+    const dir = this._sort.dir;
+    // Neueste zuerst (dir -1) bzw. am längsten unbenutzt zuerst (dir 1), "nie" dort ganz vorn
+    return [...rows].sort((a, b) => {
+      if (a.last === b.last) return 0;
+      if (a.last === null) return dir > 0 ? -1 : 1;
+      if (b.last === null) return dir > 0 ? 1 : -1;
+      return dir * (a.last - b.last);
+    });
+  }
+
+  /** Frühester Beginn der Erfassung über alle Spalten (ms) oder null. */
+  _usageSince() {
+    const times = (this._cols || []).map((c) => toTime(c.state?.attributes?.verwendung_seit)).filter((t) => t !== null);
+    return times.length ? Math.min(...times) : null;
+  }
+
+  _inactiveDays() {
+    return Math.max(1, Number(this._config.inaktiv_tage) || 90);
   }
 
   _bestStatus(entries) {
@@ -219,6 +266,12 @@ class ZugangsUebersichtCard extends HTMLElement {
           return r.cells.some((c) => c.length === 0);
         case "neu":
           return r.neu;
+        case "inaktiv": {
+          const limit = Date.now() - this._inactiveDays() * 86400000;
+          if (r.last !== null) return r.last < limit;
+          const since = this._usageSince();
+          return since !== null && since < limit;
+        }
         default:
           return true;
       }
@@ -270,6 +323,7 @@ class ZugangsUebersichtCard extends HTMLElement {
             <option value="probleme">Nicht aktiv</option>
             <option value="fehlt">Nicht überall</option>
             <option value="neu">Neu</option>
+            <option value="inaktiv">Lange nicht benutzt</option>
           </select>
         </div>
         <div class="content"></div>
@@ -314,6 +368,8 @@ class ZugangsUebersichtCard extends HTMLElement {
     const write = this._canWrite();
     root.querySelector(".title").textContent = this._config.titel;
     root.querySelector(".add-btn").hidden = !write || !cols.some((c) => c.hinzufuegen);
+    const inactiveOpt = root.querySelector('option[value="inaktiv"]');
+    if (inactiveOpt) inactiveOpt.textContent = `Länger als ${this._inactiveDays()} Tage nicht benutzt`;
     root.querySelector('[data-action="refresh"]').hidden = !cols.some((c) => c.aktualisieren);
     const content = root.querySelector(".content");
 
@@ -323,7 +379,10 @@ class ZugangsUebersichtCard extends HTMLElement {
       return;
     }
 
-    const rows = this._visibleRows(this._allRows);
+    const rows = this._sortRows(this._visibleRows(this._allRows));
+    const now = new Date();
+    const since = this._usageSince();
+    const sinceText = since !== null ? fmtDate(new Date(since).toISOString()) : null;
     const head = cols
       .map((c) => {
         const st = c.state;
@@ -355,8 +414,12 @@ class ZugangsUebersichtCard extends HTMLElement {
             }</td>`;
           })
           .join("");
+        const lastCell =
+          r.last !== null
+            ? `<td class="last" title="${esc(`${new Date(r.last).toLocaleString("de-DE")} · ${cols[r.lastCi].name}`)}">${esc(fmtUsed(r.last, now))}<span class="where">${esc(cols[r.lastCi].name)}</span></td>`
+            : `<td class="last"><span class="none" title="${esc(sinceText ? `Nicht benutzt seit Beginn der Erfassung (${sinceText})` : "Keine Verwendung bekannt")}">–</span></td>`;
         return `<tr class="row" data-action="open" data-key="${esc(r.key)}" tabindex="0">
-          <td class="name">${esc(r.name)}${r.neu ? ` <span class="badge">neu</span>` : ""}</td>${cells}</tr>`;
+          <td class="name">${esc(r.name)}${r.neu ? ` <span class="badge">neu</span>` : ""}</td>${lastCell}${cells}</tr>`;
       })
       .join("");
 
@@ -373,8 +436,11 @@ class ZugangsUebersichtCard extends HTMLElement {
     content.innerHTML = `
       <div class="table-wrap">
         <table>
-          <thead><tr><th class="name">Mitglied <span class="sub">(${rows.length}/${this._allRows.length})</span></th>${head}</tr></thead>
-          <tbody>${body || `<tr><td class="empty" colspan="${cols.length + 1}">Keine Mitglieder gefunden.</td></tr>`}</tbody>
+          <thead><tr>
+            <th class="name sortable" data-action="sort" data-key="name" title="Nach Name sortieren">Mitglied${this._sortArrow("name")} <span class="sub">(${rows.length}/${this._allRows.length})</span></th>
+            <th class="last sortable" data-action="sort" data-key="last" title="Nach letzter Verwendung sortieren"><div>Zuletzt benutzt${this._sortArrow("last")}</div><div class="sub">${sinceText ? `erfasst seit ${esc(sinceText)}` : "&nbsp;"}</div></th>
+            ${head}</tr></thead>
+          <tbody>${body || `<tr><td class="empty" colspan="${cols.length + 2}">Keine Mitglieder gefunden.</td></tr>`}</tbody>
         </table>
       </div>
       <div class="footer">
@@ -384,6 +450,11 @@ class ZugangsUebersichtCard extends HTMLElement {
         ${stand ? `<span class="stand">Stand ${esc(fmtDateTime(stand))}</span>` : ""}
       </div>
       ${notes.length ? `<div class="notes">${notes.join("<br>")}</div>` : ""}`;
+  }
+
+  _sortArrow(key) {
+    if (this._sort.key !== key) return "";
+    return this._sort.dir < 0 ? " ▼" : " ▲";
   }
 
   _renderDialog() {
@@ -432,7 +503,14 @@ class ZugangsUebersichtCard extends HTMLElement {
           inner = entries
             .map((e, idx) => {
               const info = statusInfo(e.status);
+              // Nur Systeme, die Verwendungen erfassen, haben "verwendung_seit"
+              const since = toTime(col.state?.attributes?.verwendung_seit);
               const details = [
+                e.used !== null && e.used !== undefined
+                  ? `<span class="used">zuletzt benutzt ${esc(new Date(e.used).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" }))}</span>`
+                  : since !== null
+                    ? `<span class="used never">nicht benutzt seit ${esc(fmtDate(new Date(since).toISOString()))}</span>`
+                    : null,
                 e.zeitplan ? `Zeitplan: ${esc(e.zeitplan)}` : null,
                 e.gueltig_bis ? `gültig bis ${esc(fmtDate(e.gueltig_bis))}` : null,
                 typeof e.ausweise === "number" ? `${e.ausweise} Ausweis${e.ausweise === 1 ? "" : "e"}` : null,
@@ -533,6 +611,12 @@ class ZugangsUebersichtCard extends HTMLElement {
       case "open":
         this._openMember(el.dataset.key);
         break;
+      case "sort": {
+        const key = el.dataset.key;
+        this._sort = this._sort.key === key ? { key, dir: -this._sort.dir } : { key, dir: key === "last" ? -1 : 1 };
+        this._renderContent();
+        break;
+      }
       case "overlay":
         if (ev.composedPath()[0] === el && !this._busy) this._closeDialog();
         break;
@@ -768,6 +852,13 @@ const STYLE = `
   .empty { padding: 16px; color: var(--secondary-text-color); text-align: center; white-space: normal; }
   .footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 16px 12px; font-size: 0.8em; color: var(--secondary-text-color); }
   .legend { display: flex; gap: 12px; flex-wrap: wrap; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--primary-text-color); }
+  th.last, td.last { text-align: left; }
+  td.last { font-size: 0.9em; color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
+  td.last .where { display: block; font-size: 0.8em; opacity: 0.8; }
+  .used { color: var(--primary-text-color); }
+  .used.never { color: var(--secondary-text-color); font-style: italic; }
   .legend span { display: inline-flex; align-items: center; gap: 3px; }
   .legend ha-icon { --mdc-icon-size: 16px; }
   .notes { padding: 0 16px 12px; font-size: 0.85em; color: var(--warning-color, #ffa000); }

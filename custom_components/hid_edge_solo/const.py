@@ -15,6 +15,8 @@ CARDHOLDER_RETRY = timedelta(minutes=2)
 NEW_GRANT_WINDOW = timedelta(days=7)
 # Anzahl der letzten Zutritte, die als Verlauf angezeigt werden
 EVENT_COUNT = 20
+# Beim Start einmalig nachgeladene Ereignisse für die letzte Verwendung
+BACKFILL_EVENTS = 200
 
 # Speicher für "erstmals gesehen" je Person
 STORAGE_VERSION = 1

@@ -114,6 +114,7 @@ def _person_attr(p: dict[str, Any]) -> dict[str, Any]:
         "ausweise": len(p["ausweise"]),
         "gueltig_bis": _latest_end(p),
         "erstmals_gesehen": p.get("erstmals_gesehen"),
+        "letzte_verwendung": p.get("letzte_verwendung"),
     }
 
 
@@ -154,6 +155,8 @@ class CardholderSensor(_CardholderBase):
             # Für die Dashboard-Karte: welcher Controller, für den Löschaufruf
             "config_entry_id": entry.entry_id,
             "controller": entry.title,
+            # Ab wann "letzte_verwendung" erfasst ist
+            "verwendung_seit": self.coordinator.usage_since,
             "gesamt": len(people),
             **{f"anzahl_{status}": count for status, count in counts.items()},
             **self._meta(),
